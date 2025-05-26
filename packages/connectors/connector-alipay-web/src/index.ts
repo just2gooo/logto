@@ -141,7 +141,7 @@ const getUserInfo =
 
     errorHandler(alipay_user_info_share_response);
 
-    const { user_id: id, avatar, nick_name: name } = alipay_user_info_share_response;
+    const { open_id: id, avatar, nick_name: name } = alipay_user_info_share_response;
 
     if (!id) {
       throw new ConnectorError(ConnectorErrorCodes.InvalidResponse);

@@ -47,6 +47,17 @@ export const defaultMetadata: ConnectorMetadata = {
       placeholder: '<app-id-with-maximum-length-16>',
     },
     {
+      key: 'identityType',
+      label: 'Identity type',
+      type: ConnectorConfigFormItemType.Select,
+      required: true,
+      selectItems: [
+        { title: 'openId', value: 'openId' },
+        { title: 'userId', value: 'userId' },
+      ],
+      defaultValue: 'openId',
+    },
+    {
       key: 'privateKey',
       label: 'Private Key',
       type: ConnectorConfigFormItemType.MultilineText,
