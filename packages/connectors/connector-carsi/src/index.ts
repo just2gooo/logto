@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/no-abusive-eslint-disable */
 import { assert } from '@silverhand/essentials';
 
 import {
@@ -32,32 +33,27 @@ import {
   getUserInfoErrorGuard,
 } from './types.js';
 
-const { privateDecrypt, constants } = await import('node:crypto');
+/* eslint-disable */
+const NodeRSA = require('../dependencies/node-rsa');
 
-/**
- * 解密 Base64 编码的 RSA 加密数据
- * @param {string} base64Data - Base64 编码的数据
- * @param {string} privateKey - RSA 私钥
- * @returns {string} - 解密后的字符串
- */
-function decryptBase64RSA(base64Data: string, privateKey: string) {
-  // Base64 解码
-  const decodedData = Buffer.from(base64Data, 'base64');
-
-  // RSA 解密
-  const decryptedData = privateDecrypt(
-    {
-      key: privateKey,
-      padding: constants.RSA_PKCS1_PADDING,
-    },
-    decodedData
-  );
-
-  // 返回解密后的字符串
-  return decryptedData.toString('utf8');
+function decryptBase64RSA(encryptedBase64: string, privateKey: string) {
+  try {
+    const key = new NodeRSA(privateKey);
+    key.setOptions({ encryptionScheme: 'pkcs1', environment: 'browser' });
+    const decrypted = key.decrypt(Buffer.from(encryptedBase64, 'base64'), 'utf8');
+    if (typeof decrypted !== 'string') {
+      throw new TypeError('Failed to decrypt string');
+    }
+    return decrypted;
+  } catch (error: unknown) {
+    console.error('decryptBase64RSA error:', error);
+    throw new ConnectorError(ConnectorErrorCodes.General, 'Failed to decrypt data');
+  }
 }
+/* eslint-enable */
 
 const authorizationCallbackHandler = async (parameterObject: unknown) => {
+  console.log('just2goo: authorizationCallbackHandler parameterObject:', parameterObject);
   const result = authResponseGuard.safeParse(parameterObject);
 
   if (!result.success) {
@@ -81,6 +77,7 @@ const authorizationCallbackHandler = async (parameterObject: unknown) => {
 const getAuthorizationUri =
   (getConfig: GetConnectorConfig): GetAuthorizationUri =>
   async ({ state, redirectUri }) => {
+    console.log('just2goo: getAuthorizationUri begin');
     const config = await getConfig(defaultMetadata.id);
     validateConfig(config, carsiConfigGuard);
 
@@ -93,6 +90,11 @@ const getAuthorizationUri =
     });
     const authorizationEndpoint = getAuthorizationEndpoint(config);
 
+    console.log(
+      'just2goo: AuthorizationUri:',
+      `${authorizationEndpoint}?${queryParameters.toString()}`
+    );
+
     return `${authorizationEndpoint}?${queryParameters.toString()}`;
   };
 
@@ -101,6 +103,7 @@ export const getAccessToken = async (
   codeObject: { code: string },
   redirectUri: string
 ) => {
+  console.log('just2goo: getAccessToken codeObject:', codeObject);
   const { code } = codeObject;
   const { clientId: client_id, clientSecret: client_secret } = config;
 
@@ -109,7 +112,6 @@ export const getAccessToken = async (
     client_secret,
     code,
     grant_type: 'authorization_code',
-    redirect_uri: redirectUri,
   });
   const accessTokenEndpoint = getAccessTokenEndpoint(config);
 
@@ -120,7 +122,9 @@ export const getAccessToken = async (
     })
     .text();
 
-  const jsonResponse = jsonGuard.parse(JSON.parse(httpResponse.replace('&&&START&&&', '')));
+  console.log('just2goo: getAccessToken httpResponse:', httpResponse);
+
+  const jsonResponse = jsonGuard.parse(JSON.parse(httpResponse));
 
   const result = accessTokenResponseGuard.safeParse(jsonResponse);
 
@@ -138,6 +142,7 @@ export const getAccessToken = async (
 const getUserInfo =
   (getConfig: GetConnectorConfig): GetUserInfo =>
   async (data) => {
+    console.log('just2goo: getUserInfo data:', data);
     const { code, redirectUri } = await authorizationCallbackHandler(data);
     const config = await getConfig(defaultMetadata.id);
     validateConfig(config, carsiConfigGuard);
@@ -148,12 +153,14 @@ const getUserInfo =
       const response = await ky
         .get(userInfoEndpoint, {
           searchParams: {
-            clientId: config.clientId,
-            token: accessToken,
+            client_id: config.clientId,
+            access_token: accessToken,
           },
           timeout: defaultTimeout,
         })
         .json();
+
+      console.log('just2goo: getUserInfo response:', response);
 
       const userInfoResult = userInfoResponseGuard.safeParse(response);
 
