@@ -15,9 +15,6 @@ export const accessTokenResponseGuard = z.object({
   access_token: z.string(),
   expires_in: z.number(),
   refresh_token: z.string(),
-  scope: z.string(),
-  openId: z.string(),
-  union_id: z.string(),
 });
 
 export type AccessTokenResponse = z.infer<typeof accessTokenResponseGuard>;
@@ -26,7 +23,7 @@ export const userInfoResponseGuard = z
   .object({
     'carsi-affiliation': z.string(),
     'carsi-persistent-uid': z.string(),
-    resource_id: z.string(),
+    resource_id: z.string().optional(),
   })
   .transform((data) => ({
     carsiAffiliation: data['carsi-affiliation'],
