@@ -34,7 +34,9 @@ import {
 } from './types.js';
 
 /* eslint-disable */
-const NodeRSA = require('../dependencies/node-rsa');
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const NodeRSA = require('../dep/node-rsa/src/NodeRSA.js');
 
 function decryptBase64RSA(encryptedBase64: string, privateKey: string) {
   try {

@@ -4,4 +4,4 @@
 
 ### Minor Changes
 
-- 3fa2b796e: add Xiaomi social connector
+- 3fa2b796e: add CARSI social connector
