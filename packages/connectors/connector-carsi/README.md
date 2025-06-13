@@ -1,3 +1,3 @@
-# CARSI social connector
+# logto CARSI social connector
 
-TODO
+Reference: https://carsi.atlassian.net/wiki/spaces/CAW/pages/27103679/CARSI+SP+CARSI+SP+joining+process
