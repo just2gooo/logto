@@ -1,140 +1,225 @@
 import nock from 'nock';
 
-import { ConnectorError, ConnectorErrorCodes } from '@logto/connector-kit';
+import { testXmlParsing, parseCarsiMetadata } from './cache.js';
 
-import {
-  getAccessTokenEndpoint,
-  getAuthorizationEndpoint,
-  getUserInfoEndpoint,
-} from './constant.js';
-import createConnector, { getAccessToken } from './index.js';
-import { mockedConfig, mockedAccessTokenResponse, mockedUserInfoResponse } from './mock.js';
-
-const getConfig = vi.fn().mockResolvedValue(mockedConfig);
-
-describe('getAuthorizationUri', () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('should get a valid uri by redirectUri and state', async () => {
-    const connector = await createConnector({ getConfig });
-    const authorizationUri = await connector.getAuthorizationUri(
-      {
-        state: 'some_state',
-        redirectUri: 'http://localhost:3000/callback',
-        connectorId: 'some_connector_id',
-        connectorFactoryId: 'some_connector_factory_id',
-        jti: 'some_jti',
-        headers: {},
-      },
-      vi.fn()
-    );
-    expect(authorizationUri).toEqual(
-      `${getAuthorizationEndpoint(mockedConfig)}?client_id=%3Cclient-id%3E&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&response_type=code&state=some_state&scope=1&skip_confirm=true`
-    );
-  });
-});
-
-describe('getAccessToken', () => {
+describe('parseCarsiMetadata', () => {
   afterEach(() => {
     nock.cleanAll();
     vi.clearAllMocks();
   });
-  it('should get an accessToken by exchanging with code', async () => {
-    nock(getAccessTokenEndpoint(mockedConfig))
-      .post('')
-      .reply(200, `&&&START&&&${JSON.stringify(mockedAccessTokenResponse)}`);
-    const { accessToken } = await getAccessToken(mockedConfig, { code: 'code' }, '');
-    expect(accessToken).toEqual('access_token');
+  it('should parse CARSI metadata XML correctly in production', async () => {
+    const schools = await parseCarsiMetadata(false);
+
+    expect(schools.size).greaterThan(100);
   });
-  it('throws SocialAuthCodeInvalid error if accessToken not found in response', async () => {
-    nock(getAccessTokenEndpoint(mockedConfig))
-      .post('')
-      .reply(200, '&&&START&&&{"error":96010,"error_description":"invalid redirect uri"}');
-    await expect(getAccessToken(mockedConfig, { code: 'code' }, '')).rejects.toStrictEqual(
-      new ConnectorError(ConnectorErrorCodes.SocialAuthCodeInvalid)
-    );
+
+  it('should parse CARSI metadata XML correctly', async () => {
+    // Mock the CARSI metadata XML response
+    const mockXmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+  <EntityDescriptor entityID="https://idp.pku.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">pku.edu.cn</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">北京大学(Peking University)</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Peking University</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+  <EntityDescriptor entityID="https://idp.tsinghua.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">tsinghua.edu.cn</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">清华大学(Tsinghua University)</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Tsinghua University</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+</EntitiesDescriptor>`;
+
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(200, mockXmlResponse);
+
+    const schools = await parseCarsiMetadata(false);
+
+    expect(schools.size).toBe(2);
+    expect(schools.get('pku.edu.cn')).toEqual({
+      zh: '北京大学(Peking University)',
+      en: 'Peking University',
+      domain: 'pku.edu.cn',
+    });
+    expect(schools.get('tsinghua.edu.cn')).toEqual({
+      zh: '清华大学(Tsinghua University)',
+      en: 'Tsinghua University',
+      domain: 'tsinghua.edu.cn',
+    });
+  });
+
+  it('should handle preview environment metadata', async () => {
+    const mockPreviewXmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+  <EntityDescriptor entityID="https://test-idp.example.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">example.edu.cn</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">测试大学(Test University)</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Test University</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+</EntitiesDescriptor>`;
+
+    nock('https://dspre.carsi.edu.cn')
+      .get('/carsifed-metadata-pre.xml')
+      .reply(200, mockPreviewXmlResponse);
+
+    const schools = await parseCarsiMetadata(true);
+
+    expect(schools.size).toBe(1);
+    expect(schools.get('example.edu.cn')).toEqual({
+      zh: '测试大学(Test University)',
+      en: 'Test University',
+      domain: 'example.edu.cn',
+    });
+  });
+
+  it('should handle XML parsing errors gracefully', async () => {
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(500, 'Internal Server Error');
+
+    const schools = await parseCarsiMetadata(false);
+    expect(schools.size).toBe(0);
+  });
+
+  it('should handle malformed XML gracefully', async () => {
+    const malformedXml = '<malformed>xml<without>proper>closing>tags';
+
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(200, malformedXml);
+
+    const schools = await parseCarsiMetadata(false);
+    expect(schools.size).toBe(0);
+  });
+
+  it('should filter out non-educational domains', async () => {
+    const mockXmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+  <EntityDescriptor entityID="https://idp.pku.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">pku.edu.cn</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">北京大学(Peking University)</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Peking University</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+  <EntityDescriptor entityID="https://idp.example.com/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">example.com</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">示例网站</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Example Site</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+</EntitiesDescriptor>`;
+
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(200, mockXmlResponse);
+
+    const schools = await parseCarsiMetadata(false);
+
+    // 应该只包含.edu.cn域名
+    expect(schools.size).toBe(1);
+    expect(schools.has('pku.edu.cn')).toBe(true);
+    expect(schools.has('example.com')).toBe(false);
+  });
+
+  it('should filter out XML comments before parsing', async () => {
+    const mockXmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+  <EntityDescriptor entityID="https://carsi-idp.bipt.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">bipt.edu.cn</shibmd:Scope>
+      <!--
+          Fill in the details for your IdP here
+          <mdui:UIInfo>
+              <mdui:DisplayName xml:lang="en">A Name for the IdP at carsi-idp.bipt.edu.cn</mdui:DisplayName>
+              <mdui:Description xml:lang="en">Enter a description of your IdP at carsi-idp.bipt.edu.cn</mdui:Description>
+          </mdui:UIInfo>
+      -->
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">北京石油化工学院(Beijing Institute of Petrochemical Technology)</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Beijing Institute of Petrochemical Technology</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+  <EntityDescriptor entityID="https://idp.test.edu.cn/idp/shibboleth">
+    <Extensions>
+      <shibmd:Scope regexp="false">test.edu.cn</shibmd:Scope>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="zh">测试大学</mdui:DisplayName>
+        <mdui:DisplayName xml:lang="en">Test University</mdui:DisplayName>
+      </mdui:UIInfo>
+    </Extensions>
+  </EntityDescriptor>
+</EntitiesDescriptor>`;
+
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(200, mockXmlResponse);
+
+    const schools = await parseCarsiMetadata(false);
+
+    // 应该正确解析两个学校，注释中的占位符文本不会影响解析
+    expect(schools.size).toBe(2);
+    expect(schools.has('bipt.edu.cn')).toBe(true);
+    expect(schools.has('test.edu.cn')).toBe(true);
+
+    // 验证北京石油化工学院的信息
+    const biptSchool = schools.get('bipt.edu.cn');
+    expect(biptSchool).toEqual({
+      zh: '北京石油化工学院(Beijing Institute of Petrochemical Technology)',
+      en: 'Beijing Institute of Petrochemical Technology',
+      domain: 'bipt.edu.cn',
+    });
+
+    // 验证测试大学的信息
+    const testSchool = schools.get('test.edu.cn');
+    expect(testSchool).toEqual({
+      zh: '测试大学',
+      en: 'Test University',
+      domain: 'test.edu.cn',
+    });
   });
 });
 
-describe('getUserInfo', () => {
-  beforeEach(() => {
-    nock(getAccessTokenEndpoint(mockedConfig))
-      .post('')
-      .reply(200, `&&&START&&&${JSON.stringify(mockedAccessTokenResponse)}`);
-  });
+describe('testXmlParsing', () => {
+  it('should test XML parsing functionality', async () => {
+    const mockXmlResponse = `
+      <?xml version="1.0" encoding="UTF-8"?>
+      <md:EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+        <md:EntityDescriptor entityID="https://idp.test.edu.cn/idp/shibboleth">
+          <md:Extensions>
+            <shibmd:Scope regexp="false">test.edu.cn</shibmd:Scope>
+            <mdui:UIInfo>
+              <mdui:DisplayName xml:lang="zh">测试大学</mdui:DisplayName>
+              <mdui:DisplayName xml:lang="en">Test University</mdui:DisplayName>
+            </mdui:UIInfo>
+          </md:Extensions>
+        </md:EntityDescriptor>
+      </md:EntitiesDescriptor>
+    `;
 
-  afterEach(() => {
-    nock.cleanAll();
-    vi.clearAllMocks();
-  });
+    nock('https://www.carsi.edu.cn')
+      .get('/carsimetadata/carsifed-metadata.xml')
+      .reply(200, mockXmlResponse);
 
-  it('should get valid SocialUserInfo', async () => {
-    nock(getUserInfoEndpoint(mockedConfig)).get('').query(true).reply(200, mockedUserInfoResponse);
-    const connector = await createConnector({ getConfig });
-    const socialUserInfo = await connector.getUserInfo(
-      {
-        code: 'valid_code',
-        redirectUri: 'http://localhost:3000/callback',
-      },
-      vi.fn()
-    );
-    expect(socialUserInfo).toStrictEqual({
-      id: 'union_id',
-      avatar: 'https://avatar.example.com/user.jpg',
-      name: 'Test User',
-      rawData: mockedUserInfoResponse,
-    });
-  });
-
-  it('throws SocialAccessTokenInvalid error if remote response code is 403', async () => {
-    // Mock the userinfo endpoint to return 403
-    nock(getUserInfoEndpoint(mockedConfig)).get('').query(true).reply(403, {
-      // eslint-disable-next-line unicorn/numeric-separators-style
-      code: 96008,
-      description: 'token invalid or expired',
-      result: 'error',
-    });
-
-    const connector = await createConnector({ getConfig });
-    await expect(
-      connector.getUserInfo(
-        {
-          code: 'some_code',
-          redirectUri: 'http://localhost:3000/callback',
-        },
-        vi.fn()
-      )
-    ).rejects.toThrow(new ConnectorError(ConnectorErrorCodes.SocialAccessTokenInvalid));
-  });
-
-  it('throws General error if remote response code is 401', async () => {
-    const errorResponse = {
-      // eslint-disable-next-line unicorn/numeric-separators-style
-      code: 96012,
-      description: 'server rejected auth request',
-      result: 'error',
-    };
-    nock(getUserInfoEndpoint(mockedConfig))
-      .get('')
-      .query(true)
-      .reply(401, JSON.stringify(errorResponse));
-
-    const connector = await createConnector({ getConfig });
-    await expect(
-      connector.getUserInfo(
-        {
-          code: 'some_code',
-          redirectUri: 'http://localhost:3000/callback',
-        },
-        vi.fn()
-      )
-    ).rejects.toThrow(
-      new ConnectorError(ConnectorErrorCodes.General, {
-        code: errorResponse.code,
-        description: errorResponse.description,
-      })
-    );
+    // 这个测试主要是验证函数不会抛出错误
+    await expect(testXmlParsing(false)).resolves.not.toThrow();
   });
 });

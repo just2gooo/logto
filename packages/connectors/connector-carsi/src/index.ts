@@ -1,4 +1,3 @@
-/* eslint-disable unicorn/no-abusive-eslint-disable */
 import { assert } from '@silverhand/essentials';
 
 import {
@@ -13,47 +12,29 @@ import {
   type CreateConnector,
   type GetConnectorConfig,
 } from '@logto/connector-kit';
-import ky, { HTTPError } from 'ky';
+import ky from 'ky';
 
+import { initializeSchoolCache } from './cache.js';
 import {
   defaultScope,
   defaultMetadata,
   defaultTimeout,
   getAuthorizationEndpoint,
   getAccessTokenEndpoint,
-  getUserInfoEndpoint,
+  isInPreProduction,
 } from './constant.js';
 import type { CarsiConfig } from './types.js';
 import {
   carsiConfigGuard,
   accessTokenResponseGuard,
-  userInfoResponseGuard,
   authorizationCallbackErrorGuard,
   authResponseGuard,
-  getUserInfoErrorGuard,
 } from './types.js';
-
-/* eslint-disable */
-const NodeRSA = require('node-rsa');
-
-function decryptBase64RSA(encryptedBase64: string, privateKey: string) {
-  try {
-    const key = new NodeRSA(privateKey);
-    key.setOptions({ encryptionScheme: 'pkcs1', environment: 'browser' });
-    const decrypted = key.decrypt(Buffer.from(encryptedBase64, 'base64'), 'utf8');
-    if (typeof decrypted !== 'string') {
-      throw new TypeError('Failed to decrypt string');
-    }
-    return decrypted;
-  } catch (error: unknown) {
-    console.error('decryptBase64RSA error:', error);
-    throw new ConnectorError(ConnectorErrorCodes.General, 'Failed to decrypt data');
-  }
-}
-/* eslint-enable */
+import { fetchUserInfo } from './user-info.js';
 
 const authorizationCallbackHandler = async (parameterObject: unknown) => {
   console.log('just2goo: authorizationCallbackHandler parameterObject:', parameterObject);
+
   const result = authResponseGuard.safeParse(parameterObject);
 
   if (!result.success) {
@@ -148,58 +129,18 @@ const getUserInfo =
     validateConfig(config, carsiConfigGuard);
     const { accessToken } = await getAccessToken(config, { code }, redirectUri);
 
-    const userInfoEndpoint = getUserInfoEndpoint(config);
-    try {
-      const response = await ky
-        .get(userInfoEndpoint, {
-          searchParams: {
-            client_id: config.clientId,
-            access_token: accessToken,
-          },
-          timeout: defaultTimeout,
-        })
-        .json();
-
-      console.log('just2goo: getUserInfo response:', response);
-
-      const userInfoResult = userInfoResponseGuard.safeParse(response);
-
-      if (!userInfoResult.success) {
-        throw new ConnectorError(ConnectorErrorCodes.InvalidResponse);
-      }
-
-      const { carsiAffiliation, carsiPersistentUid, resourceId } = userInfoResult.data;
-
-      return {
-        id: decryptBase64RSA(carsiPersistentUid, config.rsaPrivateKey),
-        name: decryptBase64RSA(carsiAffiliation, config.rsaPrivateKey),
-        rawData: jsonGuard.parse(response),
-      };
-    } catch (error: unknown) {
-      if (error instanceof HTTPError) {
-        const errorBody: unknown = await error.response.json();
-        const parsedError = getUserInfoErrorGuard.safeParse(errorBody);
-
-        if (!parsedError.success) {
-          throw new ConnectorError(ConnectorErrorCodes.General, parsedError.error);
-        }
-
-        const { code, description } = parsedError.data;
-        if (error.response.status === 403) {
-          throw new ConnectorError(ConnectorErrorCodes.SocialAccessTokenInvalid);
-        }
-
-        throw new ConnectorError(ConnectorErrorCodes.General, {
-          code,
-          description,
-        });
-      }
-
-      throw error;
-    }
+    return fetchUserInfo(getConfig, accessToken);
   };
 
 const createCarsiConnector: CreateConnector<SocialConnector> = async ({ getConfig }) => {
+  // 初始化学校信息缓存
+  const config = await getConfig(defaultMetadata.id);
+  validateConfig(config, carsiConfigGuard);
+
+  // 初始化缓存
+  await initializeSchoolCache(isInPreProduction(config));
+
+  // 返回连接器
   return {
     metadata: defaultMetadata,
     type: ConnectorType.Social,
@@ -209,4 +150,8 @@ const createCarsiConnector: CreateConnector<SocialConnector> = async ({ getConfi
   };
 };
 
+// 导出所有需要的函数用于外部调用
+
 export default createCarsiConnector;
+
+export { refreshSchoolCache, getCachedSchools, testXmlParsing } from './cache.js';
