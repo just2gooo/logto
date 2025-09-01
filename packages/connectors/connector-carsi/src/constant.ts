@@ -25,6 +25,10 @@ export const getUserInfoEndpoint = (config: CarsiConfig) => {
     : userInfoEndpointPreProduction;
 };
 
+export const isInPreProduction = (config: CarsiConfig) => {
+  return config.environment !== 'production';
+};
+
 // Default scope is read user profile
 export const defaultScope = '1';
 

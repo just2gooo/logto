@@ -20,8 +20,8 @@ export const mockedUserInfoResponse = {
   code: 0,
   description: 'no error',
   data: {
-    miliaoNick: 'Test User',
-    unionId: 'union_id',
-    miliaoIcon: 'https://avatar.example.com/user.jpg',
+    'carsi-affiliation': 'faculty@test.edu.cn',
+    'carsi-persistent-uid': 'test_user_id',
+    resource_id: 'test_resource_id',
   },
 };
