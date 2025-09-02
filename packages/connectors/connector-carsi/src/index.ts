@@ -14,14 +14,12 @@ import {
 } from '@logto/connector-kit';
 import ky from 'ky';
 
-import { initializeSchoolCache } from './cache.js';
 import {
   defaultScope,
   defaultMetadata,
   defaultTimeout,
   getAuthorizationEndpoint,
   getAccessTokenEndpoint,
-  isInPreProduction,
 } from './constant.js';
 import type { CarsiConfig } from './types.js';
 import {
@@ -134,11 +132,11 @@ const getUserInfo =
 
 const createCarsiConnector: CreateConnector<SocialConnector> = async ({ getConfig }) => {
   // 初始化学校信息缓存
-  const config = await getConfig(defaultMetadata.id);
-  validateConfig(config, carsiConfigGuard);
+  // const config = await getConfig(defaultMetadata.id);
+  // validateConfig(config, carsiConfigGuard);
 
-  // 初始化缓存
-  await initializeSchoolCache(isInPreProduction(config));
+  // // 初始化缓存
+  // await initializeSchoolCache(isInPreProduction(config));
 
   // 返回连接器
   return {
