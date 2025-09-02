@@ -13,19 +13,37 @@ import {
   getUserInfoEndpoint,
   isInPreProduction,
 } from './constant.js';
-import { decryptBase64RSA } from './rsa-utils.js';
 import { carsiConfigGuard, userInfoResponseGuard, getUserInfoErrorGuard } from './types.js';
 
+/* eslint-disable */
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const NodeRSA = require('node-rsa');
+function decryptBase64RSA(encryptedBase64: string, privateKey: string) {
+  try {
+    const key = new NodeRSA(privateKey);
+    key.setOptions({ encryptionScheme: 'pkcs1', environment: 'browser' });
+    const decrypted = key.decrypt(Buffer.from(encryptedBase64, 'base64'), 'utf8');
+    if (typeof decrypted !== 'string') {
+      throw new TypeError('Failed to decrypt string');
+    }
+    return decrypted;
+  } catch (error: unknown) {
+    console.error('decryptBase64RSA error:', error);
+    throw new ConnectorError(ConnectorErrorCodes.General, 'Failed to decrypt data');
+  }
+}
+/* eslint-enable */
 // 解析CARSI affiliation获取学校信息
 const parseSchoolFromAffiliation = async (
   affiliation: string,
   isPreview = false
-): Promise<{ school: { zh: string; en: string }; role: string }> => {
+): Promise<{ school: { zh: string; en: string; logo: string }; role: string }> => {
   // 解析格式：faculty@pku.edu.cn
   const parts = affiliation.split('@');
   if (parts.length !== 2) {
     return {
-      school: { zh: '未知学校', en: 'Unknown School' },
+      school: { zh: '未知学校', en: 'Unknown School', logo: '' },
       role: 'Unknown',
     };
   }
@@ -54,18 +72,20 @@ const parseSchoolFromAffiliation = async (
       school: {
         zh: schoolInfo.zh,
         en: schoolInfo.en,
+        logo: schoolInfo.logo,
       },
       role: roleMap[roleValue] ?? roleValue,
     };
   }
 
+  console.log('无法从缓存中获取学校信息，使用域名作为学校名');
   // 如果缓存中没有，返回域名作为学校名
-  const fallbackSchoolName = domain.replace('.edu.cn', '').toUpperCase();
   const roleValue = role || 'Unknown';
   return {
     school: {
-      zh: fallbackSchoolName,
-      en: fallbackSchoolName,
+      zh: domain,
+      en: domain,
+      logo: '',
     },
     role: roleMap[roleValue] ?? roleValue,
   };
@@ -124,6 +144,7 @@ export const fetchUserInfo = async (getConfig: GetConnectorConfig, accessToken: 
     return {
       id: decryptedPersistentUid,
       name: decryptedAffiliation,
+      avatar: school.logo,
       rawData: enhancedRawData,
     };
   } catch (error: unknown) {

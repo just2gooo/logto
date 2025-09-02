@@ -9,19 +9,19 @@ export const userInfoEndpointPreProduction = 'https://spoauth2pre.carsi.edu.cn/a
 
 export const getAuthorizationEndpoint = (config: CarsiConfig) => {
   return config.environment === 'production'
-    ? `https://sp-{$client_id}.carsi.edu.cn/api/authorize`
+    ? `https://sp-${config.clientId}.carsi.edu.cn/api/authorize`
     : authorizationEndpointPreProduction;
 };
 
 export const getAccessTokenEndpoint = (config: CarsiConfig) => {
   return config.environment === 'production'
-    ? `https://sp-{$client_id}.carsi.edu.cn/api/token`
+    ? `https://sp-${config.clientId}.carsi.edu.cn/api/token`
     : accessTokenEndpointPreProduction;
 };
 
 export const getUserInfoEndpoint = (config: CarsiConfig) => {
   return config.environment === 'production'
-    ? `https://sp-{$client_id}.carsi.edu.cn/api/resource`
+    ? `https://sp-${config.clientId}.carsi.edu.cn/api/resource`
     : userInfoEndpointPreProduction;
 };
 
