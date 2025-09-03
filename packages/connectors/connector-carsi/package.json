@@ -1,6 +1,6 @@
 {
   "name": "@just2gooo/connector-carsi",
-  "version": "1.3.10",
+  "version": "2.0.0",
   "description": "CARSI connector implementation.",
   "author": "just2gooo@gmail.com",
   "dependencies": {
